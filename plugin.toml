@@ -1,0 +1,52 @@
+manifest_version = 1
+id = "io.github.bkmqb-community.github-issue"
+version = "0.2.3"
+protocol = ">=1.1,<2.0"
+state_version = 1
+entry = "component.wasm"
+
+[metadata]
+default_locale = "zh-CN"
+
+[metadata.locales."zh-CN"]
+name = "GitHub Issue Reporter"
+description = "通过聊天命令管理仓库别名并创建 GitHub Issue"
+
+[[subscriptions]]
+id = "message-handler"
+event = "message.created"
+priority = 0
+scopes = ["group", "private", "channel"]
+
+[[subscriptions]]
+id = "http-results"
+event = "action.completed"
+priority = 0
+scopes = []
+
+[[commands]]
+name = "whoami"
+aliases = []
+description = "显示当前用户 ID、来源会话 ID 和 Adapter"
+
+[[commands]]
+name = "aliasrepo"
+aliases = ["aliasRepo"]
+description = "绑定 GitHub 仓库别名：/aliasRepo <别名> <仓库 URL>"
+
+[[commands]]
+name = "issue"
+aliases = []
+description = "创建 GitHub Issue：/issue <别名> <标题>，后续行作为正文"
+
+[permissions]
+actions = ["message.reply"]
+storage = "private"
+storage_quota_bytes = 1048576
+
+[[permissions.http]]
+host = "api.github.com"
+port = 443
+methods = ["POST"]
+path_prefixes = ["/repos/"]
+credential = "github_issue"
