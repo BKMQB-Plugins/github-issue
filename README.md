@@ -42,7 +42,7 @@ BKMQB_PLUGIN_HTTP_BEARER_GITHUB_ISSUE=github_pat_xxx
 安装时必须显式授予插件请求的能力：
 
 ```bash
-bkmqb plugin install io.github.bkmqb-community.github-issue-0.2.3.bkm-plugin \
+bkmqb plugin install io.github.bkmqb-community.github-issue-0.2.4.bkm-plugin \
   --grant message.reply \
   --grant storage.private \
   --grant http.request \

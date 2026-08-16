@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Verify release version
+        shell: python
+        run: |
+          import os
+          import tomllib
+
+          with open("plugin.toml", "rb") as source:
+              version = tomllib.load(source)["version"]
+          expected = f"v{version}"
+          actual = os.environ["GITHUB_REF_NAME"]
+          if actual != expected:
+              raise SystemExit(f"release tag {actual!r} does not match plugin version {version!r}")
+      - name: Install pinned component tooling
+        run: cargo install wasm-tools --locked --version 1.256.0
+      - name: Validate and build plugin
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo test
+          cargo build --release --target wasm32-unknown-unknown
+          mkdir -p target/bkmqb
+          wasm-tools component new \
+            target/wasm32-unknown-unknown/release/bkmqb_plugin_github_issue.wasm \
+            -o target/bkmqb/component.wasm
+          wasm-tools validate target/bkmqb/component.wasm
+          plugin_id="$(sed -n 's/^id = "\(.*\)"/\1/p' plugin.toml | head -n1)"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' plugin.toml | head -n1)"
+          package="target/bkmqb/${plugin_id}-${version}.bkm-plugin"
+          zip -X -j "$package" plugin.toml target/bkmqb/component.wasm config.schema.json README.md
+          sha256sum "$package" > "${package}.sha256"
+      - name: Publish GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            target/bkmqb/*.bkm-plugin target/bkmqb/*.sha256 \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}"

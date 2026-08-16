@@ -1,6 +1,6 @@
 manifest_version = 1
 id = "io.github.bkmqb-community.github-issue"
-version = "0.2.3"
+version = "0.2.4"
 protocol = ">=1.1,<2.0"
 state_version = 1
 entry = "component.wasm"
