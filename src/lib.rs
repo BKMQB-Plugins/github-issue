@@ -245,7 +245,7 @@ fn create_issue_command(
                 },
                 HttpHeader {
                     name: "User-Agent".to_owned(),
-                    value: "bkmqb-plugin-github-issue/0.2.4".to_owned(),
+                    value: "bkmqb-plugin-github-issue/0.2.5".to_owned(),
                 },
             ],
             body: Some(request_body),
@@ -385,6 +385,7 @@ fn source_parts(target: &MessageTarget) -> (&'static str, &str) {
         MessageTarget::Group(id) => ("Group", id),
         MessageTarget::Private(id) => ("Private", id),
         MessageTarget::Channel(id) => ("Channel", id),
+        MessageTarget::GuildDirect(id) => ("GuildDirect", id),
     }
 }
 
@@ -511,13 +512,21 @@ struct GithubErrorResponse {
 mod tests {
     use super::{
         CommandPayload, MessageTarget, create_issue_command, issue_body_with_source,
-        issue_test_reply, normalize_alias, parse_github_repository,
+        issue_test_reply, normalize_alias, parse_github_repository, source_parts,
     };
 
     #[test]
     fn normalizes_repository_aliases() {
         assert_eq!(normalize_alias("cdc").as_deref(), Some("CDC"));
         assert!(normalize_alias("bad alias").is_none());
+    }
+
+    #[test]
+    fn identifies_guild_direct_sources() {
+        assert_eq!(
+            source_parts(&MessageTarget::GuildDirect("guild-id".to_owned())),
+            ("GuildDirect", "guild-id")
+        );
     }
 
     #[test]
