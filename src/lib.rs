@@ -245,7 +245,7 @@ fn create_issue_command(
                 },
                 HttpHeader {
                     name: "User-Agent".to_owned(),
-                    value: "bkmqb-plugin-github-issue/0.2.5".to_owned(),
+                    value: "bkmqb-plugin-github-issue/0.2.6".to_owned(),
                 },
             ],
             body: Some(request_body),
