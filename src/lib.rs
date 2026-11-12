@@ -21,9 +21,13 @@ struct GithubIssuePlugin;
 
 impl LifecycleGuest for GithubIssuePlugin {
     fn validate_config(config: Vec<ConfigEntry>) -> Result<(), PluginError> {
-        let admins = config_value::<Vec<String>>(&config, "admins")?.unwrap_or_default();
-        if admins.is_empty() || admins.iter().any(|id| id.trim().is_empty()) {
-            return Err(invalid_config("`admins` must contain at least one user ID"));
+        if config
+            .iter()
+            .any(|entry| entry.key != "allow_all_submitters")
+        {
+            return Err(invalid_config(
+                "only `allow_all_submitters` is supported; configure administrators in the Bot",
+            ));
         }
         let _ = config_value::<bool>(&config, "allow_all_submitters")?;
         Ok(())
@@ -67,7 +71,7 @@ impl HandlerGuest for GithubIssuePlugin {
                     ));
                 }
                 if command_name(text).is_some_and(|name| name.eq_ignore_ascii_case("aliasRepo")) {
-                    return handle_alias(&event.event_id, &message.sender.id, text);
+                    return handle_alias(&event.event_id, text);
                 }
                 if command_name(text).is_some_and(|name| name.eq_ignore_ascii_case("issue")) {
                     return handle_issue(
@@ -109,9 +113,12 @@ fn handle_whoami(
     )
 }
 
-fn handle_alias(event_id: &str, sender_id: &str, text: &str) -> Result<HandlerOutput, PluginError> {
-    if !is_admin(sender_id)? {
-        return Ok(reply(event_id, "只有插件管理员可以维护仓库别名。"));
+fn handle_alias(event_id: &str, text: &str) -> Result<HandlerOutput, PluginError> {
+    if !is_administrator(&queries::caller_authority()) {
+        return Ok(reply(
+            event_id,
+            "只有 Bot 的 owner 或管理员可以维护仓库别名。",
+        ));
     }
     let first_line = text.lines().next().unwrap_or(text);
     let mut parts = first_line.split_whitespace();
@@ -192,7 +199,7 @@ fn handle_issue(
             issue_test_reply(&title, &user_body, sender_id, target),
         ));
     }
-    if !can_submit(sender_id)? {
+    if !can_submit()? {
         return Ok(reply(event_id, "你没有通过此插件创建 Issue 的权限。"));
     }
     let key = format!("{ALIAS_PREFIX}{alias}");
@@ -245,7 +252,8 @@ fn create_issue_command(
                 },
                 HttpHeader {
                     name: "User-Agent".to_owned(),
-                    value: "bkmqb-plugin-github-issue/0.2.6".to_owned(),
+                    value: concat!("bkmqb-plugin-github-issue/", env!("CARGO_PKG_VERSION"))
+                        .to_owned(),
                 },
             ],
             body: Some(request_body),
@@ -300,15 +308,19 @@ fn handle_action_completion(
     ))
 }
 
-fn is_admin(sender_id: &str) -> Result<bool, PluginError> {
-    Ok(config_query::<Vec<String>>("admins")?
-        .unwrap_or_default()
-        .iter()
-        .any(|id| id == sender_id))
+fn is_administrator(authority: &types::CallerAuthority) -> bool {
+    authority.platform == "qq.official"
+        && matches!(
+            authority.role,
+            types::CallerRole::Admin | types::CallerRole::Owner
+        )
 }
 
-fn can_submit(sender_id: &str) -> Result<bool, PluginError> {
-    Ok(config_query::<bool>("allow_all_submitters")?.unwrap_or(false) || is_admin(sender_id)?)
+fn can_submit() -> Result<bool, PluginError> {
+    Ok(
+        config_query::<bool>("allow_all_submitters")?.unwrap_or(false)
+            || is_administrator(&queries::caller_authority()),
+    )
 }
 
 fn config_query<T: for<'de> Deserialize<'de>>(key: &str) -> Result<Option<T>, PluginError> {
@@ -340,7 +352,8 @@ fn command_name(text: &str) -> Option<&str> {
         .next()?
         .split_whitespace()
         .next()
-        .map(|command| command.trim_start_matches('/'))
+        .and_then(|command| command.strip_prefix('/'))
+        .filter(|command| !command.is_empty() && !command.starts_with('/'))
 }
 
 fn issue_body_with_source(
@@ -511,9 +524,58 @@ struct GithubErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, MessageTarget, create_issue_command, issue_body_with_source,
+        CommandPayload, MessageTarget, command_name, create_issue_command, issue_body_with_source,
         issue_test_reply, normalize_alias, parse_github_repository, source_parts,
     };
+    use super::{GithubIssuePlugin, LifecycleGuest, is_administrator, types};
+
+    #[test]
+    fn plain_messages_and_repeated_prefixes_are_not_commands() {
+        assert_eq!(command_name("/issue repo title\nbody"), Some("issue"));
+        for text in [
+            "issue repo title",
+            "//issue repo title",
+            "/",
+            "ordinary message",
+        ] {
+            assert_eq!(command_name(text), None);
+        }
+    }
+
+    #[test]
+    fn administrators_come_only_from_the_hosts_platform_bound_authority() {
+        for platform in ["qq.official", "onebot11", "unknown"] {
+            for role in [
+                types::CallerRole::User,
+                types::CallerRole::Admin,
+                types::CallerRole::Owner,
+            ] {
+                let authority = types::CallerAuthority {
+                    role,
+                    platform: platform.to_owned(),
+                    subject_hint: None,
+                };
+                assert_eq!(
+                    is_administrator(&authority),
+                    platform == "qq.official" && !matches!(role, types::CallerRole::User)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn config_no_longer_accepts_an_independent_admin_list() {
+        assert!(GithubIssuePlugin::validate_config(Vec::new()).is_ok());
+        let legacy = types::ConfigEntry {
+            key: "admins".to_owned(),
+            value: types::EncodedValue {
+                schema_version: "1.0".to_owned(),
+                content_type: "application/json".to_owned(),
+                data: br#"["owner-id"]"#.to_vec(),
+            },
+        };
+        assert!(GithubIssuePlugin::validate_config(vec![legacy]).is_err());
+    }
 
     #[test]
     fn normalizes_repository_aliases() {

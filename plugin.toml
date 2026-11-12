@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "io.github.bkmqb-community.github-issue"
-version = "0.2.6"
-protocol = ">=1.2,<2.0"
+version = "0.3.0"
+protocol = ">=1.3,<2.0"
 state_version = 1
 entry = "component.wasm"
 
@@ -31,6 +31,7 @@ description = "显示当前用户 ID、来源会话 ID 和 Adapter"
 
 [[commands]]
 name = "aliasrepo"
+audience = "admin"
 aliases = []
 description = "绑定 GitHub 仓库别名：/aliasRepo <别名> <仓库 URL>"
 
