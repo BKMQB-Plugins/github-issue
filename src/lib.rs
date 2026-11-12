@@ -60,8 +60,11 @@ impl HandlerGuest for GithubIssuePlugin {
     fn on_event(event: EventEnvelope) -> Result<HandlerOutput, PluginError> {
         match event.payload {
             EventPayload::MessageCreated(message) => {
-                let text = message.text.trim();
-                if command_name(text).is_some_and(|name| name.eq_ignore_ascii_case("whoami")) {
+                let Some(command) = queries::command_context() else {
+                    return Ok(ignored());
+                };
+                let prefix = queries::command_prefix();
+                if command.name.eq_ignore_ascii_case("whoami") {
                     return Ok(handle_whoami(
                         &event.event_id,
                         &event.adapter_id,
@@ -70,10 +73,10 @@ impl HandlerGuest for GithubIssuePlugin {
                         &message.target,
                     ));
                 }
-                if command_name(text).is_some_and(|name| name.eq_ignore_ascii_case("aliasRepo")) {
-                    return handle_alias(&event.event_id, text);
+                if command.name.eq_ignore_ascii_case("aliasRepo") {
+                    return handle_alias(&event.event_id, &command.arguments, &prefix);
                 }
-                if command_name(text).is_some_and(|name| name.eq_ignore_ascii_case("issue")) {
+                if command.name.eq_ignore_ascii_case("issue") {
                     return handle_issue(
                         &event.event_id,
                         &event.adapter_id,
@@ -81,7 +84,8 @@ impl HandlerGuest for GithubIssuePlugin {
                         message.sender.display_name.as_deref(),
                         &message.target,
                         &message.message_id,
-                        text,
+                        &command.arguments,
+                        &prefix,
                     );
                 }
                 Ok(ignored())
@@ -113,20 +117,23 @@ fn handle_whoami(
     )
 }
 
-fn handle_alias(event_id: &str, text: &str) -> Result<HandlerOutput, PluginError> {
+fn handle_alias(
+    event_id: &str,
+    arguments: &str,
+    prefix: &str,
+) -> Result<HandlerOutput, PluginError> {
     if !is_administrator(&queries::caller_authority()) {
         return Ok(reply(
             event_id,
             "只有 Bot 的 owner 或管理员可以维护仓库别名。",
         ));
     }
-    let first_line = text.lines().next().unwrap_or(text);
+    let first_line = arguments.lines().next().unwrap_or(arguments);
     let mut parts = first_line.split_whitespace();
-    let _command = parts.next();
     let Some(alias) = parts.next().and_then(normalize_alias) else {
         return Ok(reply(
             event_id,
-            "用法：/aliasRepo <别名> https://github.com/<owner>/<repo>",
+            format!("用法：{prefix}aliasRepo <别名> https://github.com/<owner>/<repo>"),
         ));
     };
     let Some(repository) = parts.next().and_then(parse_github_repository) else {
@@ -165,25 +172,24 @@ fn handle_issue(
     display_name: Option<&str>,
     target: &MessageTarget,
     message_id: &str,
-    text: &str,
+    arguments: &str,
+    prefix: &str,
 ) -> Result<HandlerOutput, PluginError> {
-    let mut lines = text.lines();
-    let first_line = lines.next().unwrap_or(text);
+    let (first_line, user_body) = arguments.split_once('\n').unwrap_or((arguments, ""));
+    let first_line = first_line.trim_end_matches('\r');
     let mut parts = first_line.split_whitespace();
-    let _command = parts.next();
     let Some(alias) = parts.next().and_then(normalize_alias) else {
         return Ok(reply(
             event_id,
-            "用法：/issue <仓库别名> <标题>，后续行作为正文。",
+            format!("用法：{prefix}issue <仓库别名> <标题>，后续行作为正文。"),
         ));
     };
     let title = parts.collect::<Vec<_>>().join(" ");
     if title.is_empty() || title.chars().count() > 256 {
         return Ok(reply(event_id, "Issue 标题不能为空且不能超过 256 个字符。"));
     }
-    let user_body = lines.collect::<Vec<_>>().join("\n").trim().to_owned();
     let body = issue_body_with_source(
-        &user_body,
+        user_body,
         adapter_id,
         sender_id,
         display_name,
@@ -196,7 +202,7 @@ fn handle_issue(
     if alias == "TEST" {
         return Ok(reply(
             event_id,
-            issue_test_reply(&title, &user_body, sender_id, target),
+            issue_test_reply(&title, user_body, sender_id, target),
         ));
     }
     if !can_submit()? {
@@ -206,7 +212,7 @@ fn handle_issue(
     let Some(repository) = queries::state_get(&key).map_err(host_error)? else {
         return Ok(reply(
             event_id,
-            format!("仓库别名 {alias} 不存在，请先使用 /aliasRepo 绑定。"),
+            format!("仓库别名 {alias} 不存在，请先使用 {prefix}aliasRepo 绑定。"),
         ));
     };
     let repository = String::from_utf8(repository.value)
@@ -345,15 +351,6 @@ fn config_value<T: for<'de> Deserialize<'de>>(
                 .map_err(|error| invalid_config(&format!("invalid `{key}`: {error}")))
         })
         .transpose()
-}
-
-fn command_name(text: &str) -> Option<&str> {
-    text.lines()
-        .next()?
-        .split_whitespace()
-        .next()
-        .and_then(|command| command.strip_prefix('/'))
-        .filter(|command| !command.is_empty() && !command.starts_with('/'))
 }
 
 fn issue_body_with_source(
@@ -524,22 +521,51 @@ struct GithubErrorResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandPayload, MessageTarget, command_name, create_issue_command, issue_body_with_source,
+        CommandPayload, MessageTarget, create_issue_command, issue_body_with_source,
         issue_test_reply, normalize_alias, parse_github_repository, source_parts,
     };
     use super::{GithubIssuePlugin, LifecycleGuest, is_administrator, types};
 
     #[test]
-    fn plain_messages_and_repeated_prefixes_are_not_commands() {
-        assert_eq!(command_name("/issue repo title\nbody"), Some("issue"));
-        for text in [
-            "issue repo title",
-            "//issue repo title",
-            "/",
-            "ordinary message",
-        ] {
-            assert_eq!(command_name(text), None);
-        }
+    fn issue_arguments_preserve_multiline_body_exactly() {
+        let output = super::handle_issue(
+            "event",
+            "adapter",
+            "sender",
+            None,
+            &MessageTarget::Group("group".to_owned()),
+            "message",
+            "TEST 标题\n\n 第一行\r\n第二行\n ",
+            "喵!",
+        )
+        .unwrap();
+        let CommandPayload::MessageReply(reply) = &output.commands[0].payload else {
+            panic!("expected dry-run reply")
+        };
+        assert!(
+            reply
+                .content
+                .contains("正文：\n\n 第一行\r\n第二行\n \n发送者")
+        );
+    }
+
+    #[test]
+    fn issue_usage_uses_the_host_prefix() {
+        let output = super::handle_issue(
+            "event",
+            "adapter",
+            "sender",
+            None,
+            &MessageTarget::Group("group".to_owned()),
+            "message",
+            "",
+            "喵!",
+        )
+        .unwrap();
+        let CommandPayload::MessageReply(reply) = &output.commands[0].payload else {
+            panic!("expected usage reply")
+        };
+        assert!(reply.content.starts_with("用法：喵!issue"));
     }
 
     #[test]
