@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "resources": [
+    {
+      "id": "repositories",
+      "title": "仓库别名",
+      "description": "管理聊天命令共用的 GitHub 仓库别名。别名自动转为大写，重命名后请使用新别名提交 Issue。",
+      "schema": {
+        "type": "object",
+        "title": "仓库别名",
+        "description": "将别名绑定到 GitHub 仓库。",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "title": "别名",
+            "description": "1 至 32 个英文字母、数字、下划线或短横线，保存时转为大写。",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "repository": {
+            "type": "string",
+            "title": "GitHub 仓库",
+            "description": "填写 owner/repo 或 https://github.com/owner/repo，保存为 owner/repo。",
+            "minLength": 3,
+            "maxLength": 256
+          }
+        },
+        "required": ["alias", "repository"],
+        "additionalProperties": false
+      },
+      "columns": [
+        {"key": "alias", "title": "别名"},
+        {"key": "repository", "title": "GitHub 仓库"}
+      ],
+      "operations": ["list", "create", "update", "delete"]
+    }
+  ]
+}

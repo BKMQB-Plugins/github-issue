@@ -1,10 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
+  "title": "GitHub Issue 设置",
+  "description": "设置通过聊天创建 GitHub Issue 的权限。",
   "additionalProperties": false,
   "properties": {
     "allow_all_submitters": {
       "type": "boolean",
+      "title": "提交权限",
+      "description": "开启后允许所有用户提交 Issue；关闭时仅 Bot 的 owner 和管理员可以提交。",
       "default": false
     }
   }

@@ -20,7 +20,7 @@ use types::{
 
 const CREATE_ISSUE_COMMAND_ID: &str = "create-issue";
 
-struct GithubIssuePlugin;
+pub struct GithubIssuePlugin;
 
 impl LifecycleGuest for GithubIssuePlugin {
     fn validate_config(config: Vec<ConfigEntry>) -> Result<(), PluginError> {
@@ -653,4 +653,5 @@ mod tests {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 export!(GithubIssuePlugin);
