@@ -125,7 +125,23 @@ fn handle_alias(
     arguments: &str,
     prefix: &str,
 ) -> Result<HandlerOutput, PluginError> {
-    if !is_administrator(&queries::caller_authority()) {
+    handle_alias_with_queries(
+        event_id,
+        arguments,
+        prefix,
+        queries::caller_authority(),
+        queries::state_get,
+    )
+}
+
+fn handle_alias_with_queries(
+    event_id: &str,
+    arguments: &str,
+    prefix: &str,
+    authority: types::CallerAuthority,
+    mut get: impl FnMut(&str) -> Result<Option<types::StateValue>, types::HostError>,
+) -> Result<HandlerOutput, PluginError> {
+    if !is_administrator(&authority) {
         return Ok(reply(
             event_id,
             "只有 Bot 的 owner 或管理员可以维护仓库别名。",
@@ -149,8 +165,8 @@ fn handle_alias(
         return Ok(reply(event_id, "仓库地址后不能包含其他参数。"));
     }
     let key = format!("{ALIAS_PREFIX}{alias}");
-    let current = queries::state_get(&key).map_err(host_error)?;
-    let expected_revision = Some(current.map_or(0, |value| value.revision));
+    let current = get(&key).map_err(host_error)?;
+    let expected_revision = current.map(|value| value.revision);
     Ok(HandlerOutput {
         disposition: Disposition::Continue,
         state_ops: vec![StateOp::Put(PutState {
