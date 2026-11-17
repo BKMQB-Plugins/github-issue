@@ -1,9 +1,10 @@
 wit_bindgen::generate!({
     path: "wit",
-    world: "plugin",
+    world: "managed-plugin",
 });
 
 mod aliases;
+mod management;
 
 use aliases::{ALIAS_PREFIX, normalize_alias, parse_github_repository, parse_repository_path};
 use bkm::plugin::{queries, types};

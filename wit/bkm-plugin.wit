@@ -1,4 +1,4 @@
-package bkm:plugin@1.4.0;
+package bkm:plugin@1.6.0;
 
 interface types {
     record command-context {
@@ -257,6 +257,11 @@ interface types {
         task-id: string,
     }
 
+    record media-create-command {
+        mime-type: string,
+        data-base64: string,
+    }
+
     variant command-payload {
         message-reply(message-reply-command),
         message-send(message-send-command),
@@ -266,6 +271,7 @@ interface types {
         browser-run(browser-run-command),
         schedule-create(schedule-create-command),
         schedule-cancel(schedule-cancel-command),
+        media-create(media-create-command),
     }
 
     record command {
@@ -357,4 +363,20 @@ world plugin {
     import queries;
     export lifecycle;
     export handler;
+}
+
+interface management {
+    use types.{encoded-value, state-op};
+    record response {
+        data: encoded-value,
+        state-ops: list<state-op>,
+    }
+    enum error-code { invalid-argument, not-found, conflict, unsupported, internal }
+    record error { code: error-code, message: string }
+    invoke: func(request: encoded-value) -> result<response, error>;
+}
+
+world managed-plugin {
+    include plugin;
+    export management;
 }
