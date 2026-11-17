@@ -3,6 +3,9 @@ wit_bindgen::generate!({
     world: "plugin",
 });
 
+mod aliases;
+
+use aliases::{ALIAS_PREFIX, normalize_alias, parse_github_repository, parse_repository_path};
 use bkm::plugin::{queries, types};
 use exports::bkm::plugin::{handler::Guest as HandlerGuest, lifecycle::Guest as LifecycleGuest};
 use serde::Deserialize;
@@ -14,7 +17,6 @@ use types::{
     PutState, StateEntry, StateOp,
 };
 
-const ALIAS_PREFIX: &str = "repos/";
 const CREATE_ISSUE_COMMAND_ID: &str = "create-issue";
 
 struct GithubIssuePlugin;
@@ -147,7 +149,7 @@ fn handle_alias(
     }
     let key = format!("{ALIAS_PREFIX}{alias}");
     let current = queries::state_get(&key).map_err(host_error)?;
-    let expected_revision = current.map(|value| value.revision);
+    let expected_revision = Some(current.map_or(0, |value| value.revision));
     Ok(HandlerOutput {
         disposition: Disposition::Continue,
         state_ops: vec![StateOp::Put(PutState {
@@ -217,6 +219,8 @@ fn handle_issue(
     };
     let repository = String::from_utf8(repository.value)
         .map_err(|_| permanent("stored repository alias is not valid UTF-8"))?;
+    let repository = parse_repository_path(&repository)
+        .ok_or_else(|| permanent("stored repository alias is invalid"))?;
     Ok(HandlerOutput {
         disposition: Disposition::Continue,
         state_ops: Vec::new(),
@@ -406,47 +410,6 @@ fn safe_metadata_value(value: &str) -> String {
         .map(|character| if character == '`' { 'ˋ' } else { character })
         .take(256)
         .collect()
-}
-
-fn normalize_alias(alias: &str) -> Option<String> {
-    let alias = alias.trim();
-    if alias.is_empty()
-        || alias.len() > 32
-        || alias
-            .bytes()
-            .any(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'_' | b'-'))
-    {
-        return None;
-    }
-    Some(alias.to_ascii_uppercase())
-}
-
-fn parse_github_repository(url: &str) -> Option<String> {
-    let path = url
-        .trim()
-        .trim_end_matches('/')
-        .strip_prefix("https://github.com/")?;
-    let mut segments = path.split('/');
-    let owner = segments.next()?;
-    let raw_repository = segments.next()?;
-    if segments.next().is_some() {
-        return None;
-    }
-    let repository = raw_repository
-        .strip_suffix(".git")
-        .unwrap_or(raw_repository);
-    if !valid_repository_part(owner) || !valid_repository_part(repository) {
-        return None;
-    }
-    Some(format!("{owner}/{repository}"))
-}
-
-fn valid_repository_part(part: &str) -> bool {
-    !part.is_empty()
-        && part.len() <= 100
-        && part
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 fn reply(event_id: &str, content: impl Into<String>) -> HandlerOutput {
